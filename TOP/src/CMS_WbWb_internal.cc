@@ -75,6 +75,7 @@ namespace Rivet {
 	  book(histos["bp1eta"], "bp1eta",        40,-5,5);
 	  book(histos["b1pt"],   "b1pt",        40, 25.0, 225.0);
 	  book(histos["b2pt"],   "b2pt",        40, 25.0, 225.0);
+	  book(histos["lj1eta"], "lj1eta",        40, -5.5, 5.5);
 	  book(histos["lj1pt"], "lj1pt",        40, 25.0, 225.0);
 	  book(histos["lj2pt"], "lj2pt",        40, 25.0, 225.0);
 	  book(histos["wj1pt"],  "wj1pt",       40, 0.0, 250.0);
@@ -84,6 +85,8 @@ namespace Rivet {
 	  book(histos["topmass_recneg"],   "topmass_recneg",   40,100,300);
 	  book(histos["charge_bpos"],   "charge_bpos",   40,-1,1);
 	  book(histos["charge_bneg"],   "charge_bneg",   40,-1,1);
+	  book(histos["toppt"],   "toppt",        60, 0.0, 300.0);
+	  book(histos["topy"],   "topy",      80, -5.5, 5.5);
     }
 
     
@@ -133,20 +136,20 @@ namespace Rivet {
 		
       //b-jet cut
       if(bjets.size()==0) vetoEvent;
-      _cut_flow->fill(cut_num++);
+	  _cut_flow->fill(cut_num++);
 	  
-       // skip events with bad association
-       bool passchargeid( fabs(q_bjets[0]) );
-       if( !passchargeid ) vetoEvent;
-       _cut_flow->fill(cut_num++);
+	  // skip events with bad association
+	  bool passchargeid( fabs(q_bjets[0]) );
+	  if( !passchargeid ) vetoEvent;
+	  _cut_flow->fill(cut_num++);
 	  
-       // Select events with bjet_pt>50GeV (otherwise, we don't see mt peak with POWHEG samples)
-       if( bjets[0]->pt()<50*GeV ) vetoEvent;	  
-       _cut_flow->fill(cut_num++);
+	  // Select events with bjet_pt>50GeV
+	  if( bjets[0]->pt()<50*GeV ) vetoEvent;	  
+	  _cut_flow->fill(cut_num++);
 
-       // Select events with at least 1 light jet
-       //if(nonbjets.size()==0) vetoEvent;
-       //_cut_flow->fill(cut_num++);
+	  // Select events with at least 1 light jet
+	  //if(nonbjets.size()==0) vetoEvent;
+	  //_cut_flow->fill(cut_num++);
 	  
       //bool passbj2( bjets.size()==1 || bjets[1]->pt()<50*GeV );
       //bool passj2( nonbjets.size()<2 || nonbjets[1]->pt()<50*GeV);
@@ -169,20 +172,26 @@ namespace Rivet {
       }
 
       //top quark is used to define off-shellness
-      std::vector<float> tmass;
+      std::vector<float> tmass, tpt, top_rapidity;
       for(size_t i=0; i<bjets.size();i++) {
         FourMomentum top(w_p4+bjets[i]->mom());
         tmass.push_back(top.mass());
+        tpt.push_back(top.pt());
+        top_rapidity.push_back(top.rapidity());
       }
 
       //fill histograms  
 	  if(q_bjets[0]>0) {
 		histos["topmass_pos"]->fill(tmass[0]/GeV);
+		histos["toppt"]->fill(tpt[0]/GeV);
+		histos["topy"]->fill(top_rapidity[0]);
 		histos["bp1eta"]->fill(bjets[0]->eta());
 		histos["charge_bpos"]->fill(qreco_bjets[0]);
 	  }
 	  else {
 		histos["topmass_neg"]->fill(tmass[0]/GeV);
+		histos["toppt"]->fill(tpt[0]/GeV);
+		histos["topy"]->fill(top_rapidity[0]);
 		histos["bm1eta"]->fill(bjets[0]->eta());
 		histos["charge_bneg"]->fill(qreco_bjets[0]);
 	  }	  
@@ -202,6 +211,7 @@ namespace Rivet {
 	  if(bjets.size()>1) histos["b2pt"]->fill(bjets[1]->pt()/GeV);
 	  if(nonbjets.size()>0) {
 		histos["lj1pt"]->fill(nonbjets[0]->pt()/GeV);
+		histos["lj1eta"]->fill(nonbjets[0]->eta());
 		histos["wj1pt"]->fill(wj1pt/GeV);
 	  }
 	  if(nonbjets.size()>1) histos["lj2pt"]->fill(nonbjets[1]->pt()/GeV);

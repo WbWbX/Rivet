@@ -5,6 +5,7 @@ import glob
 
 options = VarParsing.VarParsing('python')
 options.register('yodafile', 'test.yoda', VarParsing.VarParsing.multiplicity.singleton,VarParsing.VarParsing.varType.string, "Name of yoda output file")
+options.register('isNLO', False, VarParsing.VarParsing.multiplicity.singleton,VarParsing.VarParsing.varType.bool, "set to True if running on aMC@NLO")
 options.register('isAOD', False, VarParsing.VarParsing.multiplicity.singleton,VarParsing.VarParsing.varType.bool, "set to True if running on AOD")
 options.register('isGEN', False, VarParsing.VarParsing.multiplicity.singleton,VarParsing.VarParsing.varType.bool, "set to True if running on GEN")
 options.register('gridpack', 
@@ -38,11 +39,42 @@ else:
     args = cms.vstring(options.gridpack)
   )
 
-  #hadronization without matching (ickkw=0 in datacards)
   from Configuration.Generator.Pythia8CommonSettings_cfi import *
   from Configuration.Generator.MCTunes2017.PythiaCP5Settings_cfi import *
   from Configuration.Generator.PSweightsPythia.PythiaPSweightsSettings_cfi import *
+  if options.isNLO: from Configuration.Generator.Pythia8aMCatNLOSettings_cfi import pythia8aMCatNLOSettingsBlock
+
+  # LO hadronization without matching (ickkw=0 in datacards)
   process.generator = cms.EDFilter("Pythia8HadronizerFilter",
+                                 maxEventsToPrint = cms.untracked.int32(0),
+                                 pythiaPylistVerbosity = cms.untracked.int32(1),
+                                 filterEfficiency = cms.untracked.double(1.0),
+                                 pythiaHepMCVerbosity = cms.untracked.bool(False),
+                                 comEnergy = cms.double(13000.),
+                                 PythiaParameters = cms.PSet(
+                                     parameterSets = cms.vstring('pythia8CommonSettings',
+                                                                 'pythia8CUEP8M1Settings'),
+									 pythia8CUEP8M1Settings = cms.vstring('Tune:pp 14', 
+									 'Tune:ee 7', 
+									 'MultipartonInteractions:pT0Ref=2.4024', 
+									 'MultipartonInteractions:ecmPow=0.25208', 
+									 'MultipartonInteractions:expPow=1.6'),
+									 pythia8CommonSettings = cms.vstring('Tune:preferLHAPDF = 2', 
+									 'Main:timesAllowErrors = 10000', 
+									 'Check:epTolErr = 0.01', 
+									 'Beams:setProductionScalesFromLHEF = off', 
+									 'SLHA:keepSM = on', 
+									 'SLHA:minMassSM = 1000.', 
+									 'ParticleDecays:limitTau0 = on', 
+									 'ParticleDecays:tau0Max = 10', 
+									 'ParticleDecays:allowPhotonRadiation = on'
+                                     )
+                                 )
+  )
+  
+  #NLO Matching
+  if options.isNLO:
+    process.generator = cms.EDFilter("Pythia8HadronizerFilter",
                                  maxEventsToPrint = cms.untracked.int32(1),
                                  pythiaPylistVerbosity = cms.untracked.int32(1),
                                  filterEfficiency = cms.untracked.double(1.0),
@@ -51,13 +83,17 @@ else:
                                  PythiaParameters = cms.PSet(
                                      pythia8CommonSettingsBlock,
                                      pythia8CP5SettingsBlock,
-                                     pythia8PSweightsSettingsBlock,
+									 pythia8aMCatNLOSettingsBlock,
+									 processParameters = cms.vstring('TimeShower:nPartonsInBorn = 3'), #number of coloured particles (before resonance decays) in born matrix element
                                      parameterSets = cms.vstring('pythia8CommonSettings',
                                                                  'pythia8CP5Settings',
-                                                                 'pythia8PSweightsSettings',
+                                                                 'pythia8aMCatNLOSettings',
+                                                                 'processParameters',
                                      )
                                  )
-  )
+    )
+  print(process.generator.PythiaParameters)
+    
   
   
   from IOMC.RandomEngine.RandomServiceHelper import RandomNumberServiceHelper
@@ -68,23 +104,29 @@ else:
 
 if options.isAOD:
   process.load("SimGeneral.HepPDTESSource.pythiapdt_cfi")
-  process.generator = cms.EDProducer("GenParticles2HepMCConverter",
-    genParticles = cms.InputTag("prunedGenParticles"),
+  # particle level definitions
+  process.mergedGenParticles = cms.EDProducer("MergedGenParticleProducer",
+                               inputPruned = cms.InputTag("prunedGenParticles"),
+                               inputPacked = cms.InputTag("packedGenParticles"),
+                               )
+  process.hepmcProducer = cms.EDProducer("GenParticles2HepMCConverter",
+    genParticles = cms.InputTag("mergedGenParticles"),
     genEventInfo = cms.InputTag("generator"),
-    signalParticlePdgIds = cms.vint32(),
+    signalParticlePdgIds = cms.vint32(6,-6)
   )
   process.MessageLogger.cerr.FwkReport.reportEvery = cms.untracked.int32(1000)
   
 process.load("GeneratorInterface.RivetInterface.rivetAnalyzer_cfi")
 process.rivetAnalyzer.AnalysisNames = cms.vstring('CMS_WbWb_internal')
 process.rivetAnalyzer.OutputFile      = options.yodafile
-process.rivetAnalyzer.HepMCCollection = cms.InputTag("generator:unsmeared")
+if options.isAOD: process.rivetAnalyzer.HepMCCollection = cms.InputTag("hepmcProducer:unsmeared")
+else: process.rivetAnalyzer.HepMCCollection = cms.InputTag("generator:unsmeared")
 process.rivetAnalyzer.useGENweights = cms.bool(True)
 
 if options.isGEN:
   process.p = cms.Path(process.rivetAnalyzer)
 elif options.isAOD:
-  process.p = cms.Path(process.generator*process.rivetAnalyzer)
+  process.p = cms.Path(process.mergedGenParticles*process.hepmcProducer*process.rivetAnalyzer)
 else:
   process.p = cms.Path(process.externalLHEProducer*process.generator*process.rivetAnalyzer)
 
