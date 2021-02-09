@@ -8,8 +8,8 @@
 #include "Rivet/Projections/VetoedFinalState.hh"
 #include "Rivet/Projections/InvMassFinalState.hh"
 #include "Rivet/Projections/MissingMomentum.hh"
+#include "Rivet/Projections/PartonicTops.hh"
 #include "Rivet/Math/MatrixN.hh"
-
 
 namespace Rivet {
 
@@ -54,14 +54,27 @@ namespace Rivet {
       DressedLeptons dressed_leptons(prompt_photons, prompt_leptons, 0.1, lepton_cut, true);
       declare(dressed_leptons, "DressedLeptons");
 
+      // Neutrinos
+      IdentifiedFinalState neutrinos(fs);
+      neutrinos.acceptNeutrinos();
+      PromptFinalState prompt_neutrinos(neutrinos);
+      prompt_neutrinos.acceptMuonDecays(true);
+      prompt_neutrinos.acceptTauDecays(true);
+      declare(prompt_neutrinos, "Neutrinos");
+
       // Projection for jets
       VetoedFinalState fsForJets(fs);
       fsForJets.addVetoOnThisFinalState(dressed_leptons);
-      declare(FastJets(fsForJets, FastJets::ANTIKT, 0.4,
-                       JetAlg::Muons::ALL, JetAlg::Invisibles::NONE), "Jets");
+      //declare(FastJets(fsForJets, FastJets::ANTIKT, 0.4,
+      //                 JetAlg::Muons::ALL, JetAlg::Invisibles::NONE), "Jets");
+      declare(FastJets(fsForJets, FastJets::ANTIKT, 0.4), "Jets");
+      
+	  //Projection for MET
+      declare(MissingMomentum(fs), "MissingET");
+	  
+	  // Parton-level top quarks
+	  //declare(PartonicTops(), "TopQuarks");
 
-      //Projection for MET
-      declare(MissingMomentum(fsForJets), "MissingET");
       
       //booking of histograms
       book(_cut_flow, "cut_flow", 10,0.5,10.5);
@@ -79,6 +92,8 @@ namespace Rivet {
 	  book(histos["lj1pt"], "lj1pt",        40, 25.0, 225.0);
 	  book(histos["lj2pt"], "lj2pt",        40, 25.0, 225.0);
 	  book(histos["wj1pt"],  "wj1pt",       40, 0.0, 250.0);
+	  book(histos["gentopmass_pos"],   "gentopmass_pos",   40,100,300);
+	  book(histos["gentopmass_neg"],   "gentopmass_neg",   40,100,300);
 	  book(histos["topmass_pos"],   "topmass_pos",   40,100,300);
 	  book(histos["topmass_neg"],   "topmass_neg",   40,100,300);
 	  book(histos["topmass_recpos"],   "topmass_recpos",   40,100,300);
@@ -97,7 +112,10 @@ namespace Rivet {
       _cut_flow->fill(cut_num++);  
        histos["total"]->fill(1.0);	 
 	   
-	  //lepton
+      // neutrinos (used in MET)
+      vector<Particle> prompt_neutrinos = applyProjection<PromptFinalState>(event,"Neutrinos").particles();
+	
+      //leptons
       const vector<DressedLepton>& leptons = applyProjection<DressedLeptons>(event, "DressedLeptons").dressedLeptons();
       if(leptons.size()!=1) vetoEvent;
 	  _cut_flow->fill(cut_num++);
@@ -133,7 +151,7 @@ namespace Rivet {
         else                      { nonbjets.push_back(&jet);}
 		
       }
-		
+  
       //b-jet cut
       if(bjets.size()==0) vetoEvent;
 	  _cut_flow->fill(cut_num++);
@@ -143,8 +161,8 @@ namespace Rivet {
 	  if( !passchargeid ) vetoEvent;
 	  _cut_flow->fill(cut_num++);
 	  
-	  // Select events with bjet_pt>50GeV
-	  if( bjets[0]->pt()<50*GeV ) vetoEvent;	  
+	  // Select events with bjet_pt>25
+	  if( bjets[0]->pt()<25*GeV ) vetoEvent;	  
 	  _cut_flow->fill(cut_num++);
 
 	  // Select events with at least 1 light jet
@@ -154,9 +172,14 @@ namespace Rivet {
       //bool passbj2( bjets.size()==1 || bjets[1]->pt()<50*GeV );
       //bool passj2( nonbjets.size()<2 || nonbjets[1]->pt()<50*GeV);
 
-      //missing momentum
+      // construct missing transverse momentum by summing over all prompt neutrinos
+	  FourMomentum truth_met(0, 0, 0, 0);
+	  for (const auto& neutrino: prompt_neutrinos) {
+		  truth_met += neutrino.momentum();
+	  }
+      // more realistic MET (balanced from visible final state particles)	  
       const Vector3& met_p3 = apply<MissingMomentum>(event, "MissingET").vectorMissingPt();
-
+      
       //reconstruct the W boson
       const FourMomentum lepton_p4 = lepton->mom();
       double pz = findZcomponent(lepton_p4, met_p3);
@@ -172,16 +195,20 @@ namespace Rivet {
       }
 
       //top quark is used to define off-shellness
-      std::vector<float> tmass, tpt, top_rapidity;
+	  //vector<Particle> topQuarks = applyProjection<PartonicTops>(event,"TopQuarks").tops();
+      std::vector<float> gen_tmass, tmass, tpt, top_rapidity;
       for(size_t i=0; i<bjets.size();i++) {
-        FourMomentum top(w_p4+bjets[i]->mom());
+        FourMomentum Wb(lepton_p4+truth_met+bjets[i]->mom());
+	gen_tmass.push_back(Wb.mass());
+	FourMomentum top(w_p4+bjets[i]->mom());
         tmass.push_back(top.mass());
         tpt.push_back(top.pt());
         top_rapidity.push_back(top.rapidity());
       }
-
+	  
       //fill histograms  
 	  if(q_bjets[0]>0) {
+		histos["gentopmass_pos"]->fill(gen_tmass[0]/GeV);
 		histos["topmass_pos"]->fill(tmass[0]/GeV);
 		histos["toppt"]->fill(tpt[0]/GeV);
 		histos["topy"]->fill(top_rapidity[0]);
@@ -189,6 +216,7 @@ namespace Rivet {
 		histos["charge_bpos"]->fill(qreco_bjets[0]);
 	  }
 	  else {
+		histos["gentopmass_neg"]->fill(gen_tmass[0]/GeV);
 		histos["topmass_neg"]->fill(tmass[0]/GeV);
 		histos["toppt"]->fill(tpt[0]/GeV);
 		histos["topy"]->fill(top_rapidity[0]);
